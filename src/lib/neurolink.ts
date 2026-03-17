@@ -6161,7 +6161,12 @@ Current user's request: ${currentInput}`;
       /* non-blocking */
     }
 
-    const fallbackRoute = ModelRouter.getFallbackRoute(
+    const optFallbackProvider = enhancedOptions.fallbackProvider;
+    const optFallbackModel = enhancedOptions.fallbackModel;
+    const envFallbackProvider = process.env.FALLBACK_PROVIDER;
+    const envFallbackModel = process.env.FALLBACK_MODEL;
+
+    const modelConfigRoute = ModelRouter.getFallbackRoute(
       originalPrompt || enhancedOptions.input.text || "",
       {
         provider: providerName,
@@ -6172,9 +6177,22 @@ Current user's request: ${currentInput}`;
       { fallbackStrategy: "auto" },
     );
 
+    const fallbackRoute = {
+      ...modelConfigRoute,
+      provider:
+        optFallbackProvider ?? envFallbackProvider ?? modelConfigRoute.provider,
+      model: optFallbackModel ?? envFallbackModel ?? modelConfigRoute.model,
+    };
+
     logger.warn("Retrying with fallback provider", {
       originalProvider: providerName,
       fallbackProvider: fallbackRoute.provider,
+      fallbackModel: fallbackRoute.model,
+      fallbackSource: optFallbackProvider
+        ? "options"
+        : envFallbackProvider
+          ? "env"
+          : "model_config",
       reason: errorMsg,
     });
 
