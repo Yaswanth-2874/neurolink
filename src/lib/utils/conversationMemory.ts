@@ -57,6 +57,11 @@ export async function getConversationMessages(
     | undefined,
   options: TextGenerationOptions,
 ): Promise<ChatMessage[]> {
+  logger.debug("[NEUROLINK 5] getConversationMessages entry", {
+    hasMemory: !!conversationMemory,
+    memoryType: conversationMemory?.constructor?.name || "NONE",
+    contextSessionId: (options.context as Record<string, unknown>)?.sessionId,
+  });
   logger.debug("[conversationMemoryUtils] getConversationMessages called", {
     hasMemory: !!conversationMemory,
     memoryType: conversationMemory?.constructor?.name || "NONE",
@@ -109,11 +114,25 @@ export async function getConversationMessages(
           span.setAttribute("user.id", userId);
         }
 
+        logger.debug("[NEUROLINK 6] About to call buildContextMessages", {
+          sessionId,
+          userId,
+          memoryType: conversationMemory.constructor.name,
+        });
         const enableSummarization = options.enableSummarization ?? undefined;
         const messages = await conversationMemory.buildContextMessages(
           sessionId,
           userId,
           enableSummarization,
+        );
+        logger.debug(
+          "[NEUROLINK 7] buildContextMessages returned FULL MESSAGES",
+          {
+            messageCount: messages.length,
+            sessionId,
+            messages: messages,
+            fullMessagesJSON: JSON.stringify(messages, null, 2),
+          },
         );
 
         span.setAttribute("message.count", messages.length);
@@ -247,6 +266,15 @@ export async function storeConversationTurn(
     };
   }
 
+  logger.debug(
+    "[NEUROLINK 12] conversationMemoryUtils.storeConversationTurn - About to call memory manager",
+    {
+      sessionId,
+      userId,
+      userMessage: userMessage,
+      aiResponse: aiResponse,
+    },
+  );
   await memoryTracer.startActiveSpan(
     "neurolink.conversation.storeTurn",
     {
@@ -261,6 +289,9 @@ export async function storeConversationTurn(
         span.setAttribute("user.id", userId);
       }
       try {
+        logger.debug(
+          "[NEUROLINK 13] Calling conversationMemory.storeConversationTurn",
+        );
         await conversationMemory.storeConversationTurn({
           sessionId,
           userId,

@@ -545,6 +545,15 @@ export class RedisConversationMemoryManager implements IConversationMemoryManage
   async storeConversationTurn(
     options: StoreConversationTurnOptions,
   ): Promise<void> {
+    logger.debug(
+      "[NEUROLINK 14] RedisConversationMemoryManager.storeConversationTurn entry",
+      {
+        sessionId: options.sessionId,
+        userId: options.userId,
+        userMessage: options.userMessage,
+        aiResponse: options.aiResponse,
+      },
+    );
     logger.debug("[RedisConversationMemoryManager] Storing conversation turn", {
       sessionId: options.sessionId,
       userId: options.userId,
@@ -914,6 +923,14 @@ export class RedisConversationMemoryManager implements IConversationMemoryManage
     enableSummarization?: boolean,
     requestId?: string,
   ): Promise<ChatMessage[]> {
+    logger.debug(
+      "[NEUROLINK R1] RedisConversationMemoryManager.buildContextMessages entry",
+      {
+        sessionId,
+        userId,
+        enableSummarization,
+      },
+    );
     logger.debug("[RedisConversationMemoryManager] Building context messages", {
       sessionId,
       userId,
@@ -987,6 +1004,13 @@ export class RedisConversationMemoryManager implements IConversationMemoryManage
           };
 
           const contextMessages = buildContextFromPointer(session, requestId);
+
+          logger.debug("[NEUROLINK R6] Context built FULL MESSAGES", {
+            contextMessageCount: contextMessages.length,
+            pointerMessageId: session.summarizedUpToMessageId || "none",
+            messages: contextMessages,
+            fullMessagesJSON: JSON.stringify(contextMessages, null, 2),
+          });
 
           logger.debug(
             "[RedisConversationMemoryManager] Built context messages from pointer",
@@ -2014,7 +2038,10 @@ User message: "${userMessage}"`;
     if (!this.redisClient) {
       logger.warn(
         "[RedisConversationMemoryManager] Redis client not available for report update",
-        { sessionId, userId },
+        {
+          sessionId,
+          userId,
+        },
       );
       return;
     }
@@ -2042,7 +2069,10 @@ User message: "${userMessage}"`;
       if (!conversation) {
         logger.warn(
           "[RedisConversationMemoryManager] Failed to deserialize conversation for report update",
-          { sessionId, userId },
+          {
+            sessionId,
+            userId,
+          },
         );
         return;
       }
@@ -2066,13 +2096,19 @@ User message: "${userMessage}"`;
           report;
         logger.debug(
           "[RedisConversationMemoryManager] Updated existing agentic loop report",
-          { sessionId, reportId: report.reportId },
+          {
+            sessionId,
+            reportId: report.reportId,
+          },
         );
       } else {
         conversation.additionalMetadata.agenticLoopReports.push(report);
         logger.debug(
           "[RedisConversationMemoryManager] Added new agentic loop report",
-          { sessionId, reportId: report.reportId },
+          {
+            sessionId,
+            reportId: report.reportId,
+          },
         );
       }
 

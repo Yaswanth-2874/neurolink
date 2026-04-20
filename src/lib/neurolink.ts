@@ -1614,7 +1614,10 @@ export class NeuroLink {
               params: unknown,
               ctx: unknown,
             ) => Promise<unknown>
-          )(params, { toolCallId: "memory-retrieval", messages: [] }),
+          )(params, {
+            toolCallId: "memory-retrieval",
+            messages: [],
+          }),
           TOOL_TIMEOUTS.EXECUTION_DEFAULT_MS,
           ErrorFactory.toolTimeout(
             "retrieve_context",
@@ -4636,6 +4639,19 @@ Current user's request: ${currentInput}`;
       },
     );
 
+    const genSessionId = (options.context as Record<string, unknown>)
+      ?.sessionId;
+    const genUserId = (options.context as Record<string, unknown>)?.userId;
+    const genOriginalPrompt = options.originalPrompt || options.prompt || "";
+    logger.debug(
+      "[NEUROLINK 8] generate() - About to store conversation turn",
+      {
+        sessionId: genSessionId,
+        userId: genUserId,
+        userMessage: genOriginalPrompt,
+        aiResponse: result.content,
+      },
+    );
     const memStoreStart = Date.now();
     try {
       await storeConversationTurn(
@@ -4644,6 +4660,13 @@ Current user's request: ${currentInput}`;
         result,
         new Date(startTime),
         requestId,
+      );
+      logger.debug(
+        "[NEUROLINK 9] generate() - Conversation turn stored successfully",
+        {
+          sessionId: genSessionId,
+          durationMs: Date.now() - memStoreStart,
+        },
       );
       this.recordMemorySpan(
         "memory.store",
@@ -5337,10 +5360,21 @@ Current user's request: ${currentInput}`;
       hasCustomSystemPrompt: !!options.systemPrompt,
     });
 
+    logger.debug("[NEUROLINK 1] About to fetch conversation messages", {
+      hasConversationMemory: !!this.conversationMemory,
+      memoryType: this.conversationMemory?.constructor?.name,
+      sessionId: (options.context as Record<string, unknown>)?.sessionId,
+      optionsContext: options.context,
+    });
     const conversationMessages = (await getConversationMessages(
       this.conversationMemory,
       options,
     )) as ChatMessage[];
+    logger.debug("[NEUROLINK 2] Retrieved conversation messages FULL DATA", {
+      messageCount: conversationMessages.length,
+      messages: conversationMessages,
+      fullMessagesJSON: JSON.stringify(conversationMessages, null, 2),
+    });
     this.logMCPConversationSummary(requestId, conversationMessages);
 
     logger.debug("[Observability] Available tools for LLM", {
@@ -6429,6 +6463,7 @@ Current user's request: ${currentInput}`;
         factoryResult,
         sessionId: enhancedOptions.context?.sessionId,
       });
+
       const {
         stream: mcpStream,
         provider: providerName,
@@ -6439,6 +6474,15 @@ Current user's request: ${currentInput}`;
         toolResults: streamToolResults,
         analytics: streamAnalytics,
       } = await this.createMCPStream(enhancedOptions);
+      logger.debug("testing", {
+        providerName,
+        streamUsage,
+        streamModel,
+        streamFinishReason,
+        streamToolCalls,
+        streamToolResults,
+        streamAnalytics,
+      });
       const streamState = {
         finishReason: streamFinishReason ?? "stop",
         toolCalls: streamToolCalls,
@@ -6473,6 +6517,10 @@ Current user's request: ${currentInput}`;
               "content" in chunk &&
               typeof chunk.content === "string"
             ) {
+              logger.debug("stream log", {
+                chunk,
+                chunkCount,
+              });
               accumulatedContent += chunk.content;
               self.emitter.emit("response:chunk", chunk.content);
               self.emitter.emit("stream:chunk", {
@@ -6487,6 +6535,14 @@ Current user's request: ${currentInput}`;
             }
             yield chunk;
           }
+
+          logger.debug("Generated content so far ! ", {
+            accumulatedContent,
+            chunkCount,
+            metadata: metadata,
+            enhancedOptions,
+            streamState,
+          });
 
           if (
             chunkCount === 0 &&
@@ -7092,6 +7148,17 @@ Current user's request: ${currentInput}`;
       // threaded through options.  Only fall back to memory when no explicit
       // history was provided — this preserves caller-supplied empty arrays
       // (which signal "no prior context") and avoids resurrecting stale memory.
+      logger.debug(
+        "[NEUROLINK 8] Fallback - determining conversation messages source",
+        {
+          hasExplicitMessages:
+            enhancedOptions.conversationMessages !== undefined,
+          explicitMessagesCount: enhancedOptions.conversationMessages?.length,
+          hasConversationMemory: !!this.conversationMemory,
+          sessionId: (enhancedOptions.context as Record<string, unknown>)
+            ?.sessionId,
+        },
+      );
       const conversationMessages =
         enhancedOptions.conversationMessages !== undefined
           ? enhancedOptions.conversationMessages
@@ -7099,6 +7166,13 @@ Current user's request: ${currentInput}`;
               prompt: enhancedOptions.input.text,
               context: enhancedOptions.context as Record<string, unknown>,
             } as TextGenerationOptions);
+      logger.debug("[NEUROLINK 9] Fallback - conversation messages resolved", {
+        messageCount: conversationMessages.length,
+        source:
+          enhancedOptions.conversationMessages !== undefined
+            ? "explicit"
+            : "memory",
+      });
 
       const fallbackResult = await fallbackProvider.stream({
         ...enhancedOptions,
@@ -7227,6 +7301,16 @@ Current user's request: ${currentInput}`;
         };
       }
 
+      logger.debug(
+        "[NEUROLINK 10] stream() - About to store conversation turn",
+        {
+          sessionId,
+          userId,
+          userMessage: originalPrompt,
+          aiResponse: accumulatedContent,
+          events: eventSequence,
+        },
+      );
       const memStoreStart = Date.now();
       try {
         await this.conversationMemory.storeConversationTurn({
@@ -7241,6 +7325,13 @@ Current user's request: ${currentInput}`;
           requestId: (enhancedOptions.context as Record<string, unknown>)
             ?.requestId as string | undefined,
         });
+        logger.debug(
+          "[NEUROLINK 11] stream() - Conversation turn stored successfully",
+          {
+            sessionId,
+            durationMs: Date.now() - memStoreStart,
+          },
+        );
 
         this.recordMemorySpan(
           "memory.store",
@@ -7404,6 +7495,15 @@ Current user's request: ${currentInput}`;
           prompt: options.input.text,
           context: options.context,
         } as TextGenerationOptions);
+
+    logger.debug("Difference between options and fetched", {
+      options: options.conversationMessages,
+      feched: getConversationMessages(this.conversationMemory, {
+        ...options,
+        prompt: options.input.text,
+        context: options.context,
+      } as TextGenerationOptions),
+    });
     // Make the resolved messages the single source of truth so downstream
     // consumers (compaction, fallback streams) reuse them instead of
     // reloading from conversationMemory.
@@ -7531,6 +7631,9 @@ Current user's request: ${currentInput}`;
 
     // 🔧 FIX: Pass enhanced system prompt to real streaming
     // Tools will be accessed through the streamText call in executeStream
+    logger.debug("History for the message!!", {
+      conversationMessages: conversationMessages,
+    });
     const streamResult = await provider.stream({
       ...options,
       systemPrompt: enhancedSystemPrompt, // Use enhanced prompt with tool descriptions
